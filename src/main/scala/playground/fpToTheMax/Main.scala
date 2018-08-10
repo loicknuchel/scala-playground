@@ -13,8 +13,113 @@ import scala.util.Try
   * Step5: Add some syntax for implicits
   * Step6: Add a TestIO Monad to mock system and easily test the program
   * Step7: Output structured data instead of Strings
+  * Step8: Split code between Main, Test & Lib
   */
 object Main {
+
+  import Lib._
+
+  def parseInt(in: String): Option[Int] = Try(in.toInt).toOption
+
+  def main(args: Array[String]): Unit = mainIO.unsafeRun()
+
+  def mainIO: IO[Unit] = {
+    implicit val p: Program[IO] = IO.ProgramIO
+    implicit val c: Console[IO] = IO.ConsoleIO
+    implicit val r: Random[IO] = IO.RandomIO
+    mainProgram[IO]
+  }
+
+  def mainProgram[F[_] : Program : Console : Random]: F[Unit] =
+    for {
+      _ <- Console[F].putStrLn(Messages.WhatIsYourName)
+      name <- Console[F].getStrLn
+      _ <- Console[F].putStrLn(Messages.WelcomeToGame(name))
+      _ <- gameLoop(name)
+    } yield ()
+
+  def gameLoop[F[_] : Program : Console : Random](name: String): F[Unit] =
+    for {
+      num <- Random[F].nextInt(5).map(_ + 1)
+      _ <- Console[F].putStrLn(Messages.PleaseGuess(name))
+      input <- Console[F].getStrLn
+      _ <- parseInt(input) match {
+        case None => Console[F].putStrLn(Messages.GuessNotValid)
+        case Some(guess) =>
+          if (guess == num) Console[F].putStrLn(Messages.YouGuessedRight(name))
+          else Console[F].putStrLn(Messages.YouGuessedWrong(name, num))
+      }
+      cont <- checkContinue(name)
+      _ <- if (cont) gameLoop(name) else Program[F].finish(())
+    } yield ()
+
+  def checkContinue[F[_] : Program : Console](name: String): F[Boolean] =
+    for {
+      _ <- Console[F].putStrLn(Messages.DoYouWantToContinue(name))
+      input <- Console[F].getStrLn
+      cont <- input.toLowerCase match {
+        case "y" => Program[F].finish(true)
+        case "n" => Program[F].finish(false)
+        case _ => checkContinue(name)
+      }
+    } yield cont
+
+  object Messages {
+
+    case object WhatIsYourName extends ConsoleOut {
+      def en = "What is your name?"
+    }
+
+    case class WelcomeToGame(name: String) extends ConsoleOut {
+      def en = s"Hello, $name, welcome to the game!"
+    }
+
+    case class PleaseGuess(name: String) extends ConsoleOut {
+      def en = s"Dear $name, please guess a number from 1 to 5:"
+    }
+
+    case object GuessNotValid extends ConsoleOut {
+      def en = "You did not enter a number !"
+    }
+
+    case class YouGuessedRight(name: String) extends ConsoleOut {
+      def en = s"You guessed right, $name!"
+    }
+
+    case class YouGuessedWrong(name: String, num: Int) extends ConsoleOut {
+      def en = s"You guessed wrong, $name! The number was: $num"
+    }
+
+    case class DoYouWantToContinue(name: String) extends ConsoleOut {
+      def en = s"Do you want to continue, $name?"
+    }
+
+  }
+}
+
+object Test {
+
+  import Lib._
+  import Main.mainProgram
+
+  def main(args: Array[String]): Unit = {
+    val res = mainTestIO.eval(TestData(
+      input = List("loic", "2", "n"),
+      output = List(),
+      nums = List(1)
+    ))
+    println("Result :\n" + res.showResults)
+  }
+
+  def mainTestIO: TestIO[Unit] = {
+    implicit val p: Program[TestIO] = TestIO.ProgramTestIO
+    implicit val c: Console[TestIO] = TestIO.ConsoleTestIO
+    implicit val r: Random[TestIO] = TestIO.RandomTestIO
+    mainProgram[TestIO]
+  }
+}
+
+object Lib {
 
   trait Program[F[_]] {
     def finish[A](a: => A): F[A]
@@ -131,96 +236,6 @@ object Main {
     implicit val RandomTestIO: Random[TestIO] = new Random[TestIO] {
       def nextInt(upper: Int): TestIO[Int] = TestIO(d => d.nextInt(upper))
     }
-  }
-
-  def finish[F[_] : Program, A](a: => A): F[A] = Program[F].finish(a)
-
-  def putStrLn[F[_] : Console](line: => ConsoleOut): F[Unit] = Console[F].putStrLn(line)
-
-  def getStrLn[F[_] : Console]: F[String] = Console[F].getStrLn
-
-  def nextInt[F[_] : Random](upper: Int): F[Int] = Random[F].nextInt(upper)
-
-  def parseInt(in: String): Option[Int] = Try(in.toInt).toOption
-
-  def main(args: Array[String]): Unit = {
-    mainIO.unsafeRun()
-    /*val res = mainTestIO.eval(TestData(
-      input = List("loic", "2", "n"),
-      output = List(),
-      nums = List(1)
-    ))
-    println("Result :\n" + res.showResults)*/
-  }
-
-  def mainIO: IO[Unit] = mainProgram[IO]
-
-  def mainTestIO: TestIO[Unit] = mainProgram[TestIO]
-
-  def mainProgram[F[_] : Program : Console : Random]: F[Unit] =
-    for {
-      _ <- putStrLn(Messages.WhatIsYourName)
-      name <- getStrLn
-      _ <- putStrLn(Messages.WelcomeToGame(name))
-      _ <- gameLoop(name)
-    } yield ()
-
-  def gameLoop[F[_] : Program : Console : Random](name: String): F[Unit] =
-    for {
-      num <- nextInt(5).map(_ + 1)
-      _ <- putStrLn(Messages.PleaseGuess(name))
-      input <- getStrLn
-      _ <- parseInt(input) match {
-        case None => putStrLn(Messages.GuessNotValid)
-        case Some(guess) =>
-          if (guess == num) putStrLn(Messages.YouGuessedRight(name))
-          else putStrLn(Messages.YouGuessedWrong(name, num))
-      }
-      cont <- checkContinue(name)
-      _ <- if (cont) gameLoop(name) else finish(())
-    } yield ()
-
-  def checkContinue[F[_] : Program : Console](name: String): F[Boolean] =
-    for {
-      _ <- putStrLn(Messages.DoYouWantToContinue(name))
-      input <- getStrLn
-      cont <- input.toLowerCase match {
-        case "y" => finish(true)
-        case "n" => finish(false)
-        case _ => checkContinue(name)
-      }
-    } yield cont
-
-  object Messages {
-
-    case object WhatIsYourName extends ConsoleOut {
-      def en = "What is your name?"
-    }
-
-    case class WelcomeToGame(name: String) extends ConsoleOut {
-      def en = s"Hello, $name, welcome to the game!"
-    }
-
-    case class PleaseGuess(name: String) extends ConsoleOut {
-      def en = s"Dear $name, please guess a number from 1 to 5:"
-    }
-
-    case object GuessNotValid extends ConsoleOut {
-      def en = "You did not enter a number !"
-    }
-
-    case class YouGuessedRight(name: String) extends ConsoleOut {
-      def en = s"You guessed right, $name!"
-    }
-
-    case class YouGuessedWrong(name: String, num: Int) extends ConsoleOut {
-      def en = s"You guessed wrong, $name! The number was: $num"
-    }
-
-    case class DoYouWantToContinue(name: String) extends ConsoleOut {
-      def en = s"Do you want to continue, $name?"
-    }
-
   }
 
 }
