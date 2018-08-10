@@ -5,14 +5,9 @@ import scala.language.higherKinds
 import scala.util.Try
 
 /**
-  * Step0: Imperative code that do side effects and throw errors
-  * Step1: Make the program safe and not throw errors
-  * Step2: Remove loops to prepare IO refactoring (no more variables also \o/)
-  * Step3: Use IO to have a pure program
-  * Step4: Create a Program runner so we can abstract the IO monad and explicitly add dependencies
-  * Step5: Add some syntax for implicits
+  * Create a Program runner so we can abstract the IO monad and explicitly add dependencies
   */
-object Main {
+object Step4 {
 
   trait Program[F[_]] {
     def finish[A](a: => A): F[A]
@@ -20,10 +15,6 @@ object Main {
     def chain[A, B](m: F[A], f: A => F[B]): F[B]
 
     def map[A, B](m: F[A], f: A => B): F[B]
-  }
-
-  object Program {
-    def apply[F[_]](implicit p: Program[F]): Program[F] = p
   }
 
   implicit class ProgramSyntax[F[_], A](m: F[A]) {
@@ -38,16 +29,8 @@ object Main {
     def getStrLn: F[String]
   }
 
-  object Console {
-    def apply[F[_]](implicit c: Console[F]): Console[F] = c
-  }
-
   trait Random[F[_]] {
     def nextInt(upper: Int): F[Int]
-  }
-
-  object Random {
-    def apply[F[_]](implicit r: Random[F]): Random[F] = r
   }
 
   case class IO[A](unsafeRun: () => A) {
@@ -77,13 +60,13 @@ object Main {
     }
   }
 
-  def finish[F[_] : Program, A](a: => A): F[A] = Program[F].finish(a)
+  def finish[F[_], A](a: => A)(implicit p: Program[F]): F[A] = p.finish(a)
 
-  def putStrLn[F[_] : Console](line: => String): F[Unit] = Console[F].putStrLn(line)
+  def putStrLn[F[_]](line: => String)(implicit c: Console[F]): F[Unit] = c.putStrLn(line)
 
-  def getStrLn[F[_] : Console]: F[String] = Console[F].getStrLn
+  def getStrLn[F[_]](implicit c: Console[F]): F[String] = c.getStrLn
 
-  def nextInt[F[_] : Random](upper: Int): F[Int] = Random[F].nextInt(upper)
+  def nextInt[F[_]](upper: Int)(implicit r: Random[F]): F[Int] = r.nextInt(upper)
 
   def parseInt(in: String): Option[Int] = Try(in.toInt).toOption
 
@@ -91,7 +74,7 @@ object Main {
 
   def mainIO: IO[Unit] = mainProgram[IO]
 
-  def mainProgram[F[_] : Program : Console : Random]: F[Unit] =
+  def mainProgram[F[_]](implicit p: Program[F], c: Console[F], r: Random[F]): F[Unit] =
     for {
       _ <- putStrLn("What is your name?")
       name <- getStrLn
@@ -99,7 +82,7 @@ object Main {
       _ <- gameLoop(name)
     } yield ()
 
-  def gameLoop[F[_] : Program : Console : Random](name: String): F[Unit] =
+  def gameLoop[F[_]](name: String)(implicit p: Program[F], c: Console[F], r: Random[F]): F[Unit] =
     for {
       num <- nextInt(5).map(_ + 1)
       _ <- putStrLn("Dear " + name + ", please guess a number from 1 to 5:")
@@ -114,7 +97,7 @@ object Main {
       _ <- if (cont) gameLoop(name) else finish(())
     } yield ()
 
-  def checkContinue[F[_] : Program : Console](name: String): F[Boolean] =
+  def checkContinue[F[_]](name: String)(implicit p: Program[F], c: Console[F]): F[Boolean] =
     for {
       _ <- putStrLn("Do you want to continue, " + name + "?")
       input <- getStrLn
