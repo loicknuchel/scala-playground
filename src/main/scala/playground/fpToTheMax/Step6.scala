@@ -5,16 +5,9 @@ import scala.language.higherKinds
 import scala.util.Try
 
 /**
-  * Step0: Imperative code that do side effects and throw errors
-  * Step1: Make the program safe and not throw errors
-  * Step2: Remove loops to prepare IO refactoring (no more variables also \o/)
-  * Step3: Use IO to have a pure program
-  * Step4: Create a Program runner so we can abstract the IO monad and explicitly add dependencies
-  * Step5: Add some syntax for implicits
-  * Step6: Add a TestIO Monad to mock system and easily test the program
-  * Step7: Output structured data instead of Strings
+  * Add a TestIO Monad to mock system and easily test the program
   */
-object Main {
+object Step6 {
 
   trait Program[F[_]] {
     def finish[A](a: => A): F[A]
@@ -34,12 +27,8 @@ object Main {
     def flatMap[B](f: A => F[B])(implicit p: Program[F]): F[B] = p.chain(m, f)
   }
 
-  sealed trait ConsoleOut {
-    def en: String
-  }
-
   trait Console[F[_]] {
-    def putStrLn(line: => ConsoleOut): F[Unit]
+    def putStrLn(line: => String): F[Unit]
 
     def getStrLn: F[String]
   }
@@ -74,18 +63,17 @@ object Main {
     }
 
     implicit val ConsoleIO: Console[IO] = new Console[IO] {
-      def putStrLn(line: => ConsoleOut): IO[Unit] = IO(() => println(line.en))
+      def putStrLn(line: => String): IO[Unit] = IO(() => println(line))
 
       def getStrLn: IO[String] = IO(() => readLine())
     }
-
     implicit val RandomIO: Random[IO] = new Random[IO] {
       def nextInt(upper: Int): IO[Int] = IO(() => scala.util.Random.nextInt(upper))
     }
   }
 
-  case class TestData(input: List[String], output: List[ConsoleOut], nums: List[Int]) {
-    def putStrLn(line: => ConsoleOut): (TestData, Unit) =
+  case class TestData(input: List[String], output: List[String], nums: List[Int]) {
+    def putStrLn(line: => String): (TestData, Unit) =
       (copy(output = line :: output), ())
 
     def getStrLn: (TestData, String) =
@@ -94,7 +82,7 @@ object Main {
     def nextInt(upper: Int): (TestData, Int) =
       (copy(nums = nums.tail), nums.head)
 
-    def showResults: String = output.reverse.map(_.en).mkString("\n")
+    def showResults: String = output.reverse.mkString("\n")
   }
 
   case class TestIO[A](run: TestData => (TestData, A)) {
@@ -123,11 +111,10 @@ object Main {
     }
 
     implicit val ConsoleTestIO: Console[TestIO] = new Console[TestIO] {
-      def putStrLn(line: => ConsoleOut): TestIO[Unit] = TestIO(d => d.putStrLn(line))
+      def putStrLn(line: => String): TestIO[Unit] = TestIO(d => d.putStrLn(line))
 
       def getStrLn: TestIO[String] = TestIO(d => d.getStrLn)
     }
-
     implicit val RandomTestIO: Random[TestIO] = new Random[TestIO] {
       def nextInt(upper: Int): TestIO[Int] = TestIO(d => d.nextInt(upper))
     }
@@ -135,7 +122,7 @@ object Main {
 
   def finish[F[_] : Program, A](a: => A): F[A] = Program[F].finish(a)
 
-  def putStrLn[F[_] : Console](line: => ConsoleOut): F[Unit] = Console[F].putStrLn(line)
+  def putStrLn[F[_] : Console](line: => String): F[Unit] = Console[F].putStrLn(line)
 
   def getStrLn[F[_] : Console]: F[String] = Console[F].getStrLn
 
@@ -159,22 +146,22 @@ object Main {
 
   def mainProgram[F[_] : Program : Console : Random]: F[Unit] =
     for {
-      _ <- putStrLn(Messages.WhatIsYourName)
+      _ <- putStrLn("What is your name?")
       name <- getStrLn
-      _ <- putStrLn(Messages.WelcomeToGame(name))
+      _ <- putStrLn("Hello, " + name + ", welcome to the game!")
       _ <- gameLoop(name)
     } yield ()
 
   def gameLoop[F[_] : Program : Console : Random](name: String): F[Unit] =
     for {
       num <- nextInt(5).map(_ + 1)
-      _ <- putStrLn(Messages.PleaseGuess(name))
+      _ <- putStrLn("Dear " + name + ", please guess a number from 1 to 5:")
       input <- getStrLn
       _ <- parseInt(input) match {
-        case None => putStrLn(Messages.GuessNotValid)
+        case None => putStrLn("You did not enter a number")
         case Some(guess) =>
-          if (guess == num) putStrLn(Messages.YouGuessedRight(name))
-          else putStrLn(Messages.YouGuessedWrong(name, num))
+          if (guess == num) putStrLn("You guessed right, " + name + "!")
+          else putStrLn("You guessed wrong, " + name + "! The number was: " + num)
       }
       cont <- checkContinue(name)
       _ <- if (cont) gameLoop(name) else finish(())
@@ -182,7 +169,7 @@ object Main {
 
   def checkContinue[F[_] : Program : Console](name: String): F[Boolean] =
     for {
-      _ <- putStrLn(Messages.DoYouWantToContinue(name))
+      _ <- putStrLn("Do you want to continue, " + name + "?")
       input <- getStrLn
       cont <- input.toLowerCase match {
         case "y" => finish(true)
@@ -190,37 +177,4 @@ object Main {
         case _ => checkContinue(name)
       }
     } yield cont
-
-  object Messages {
-
-    case object WhatIsYourName extends ConsoleOut {
-      def en = "What is your name?"
-    }
-
-    case class WelcomeToGame(name: String) extends ConsoleOut {
-      def en = s"Hello, $name, welcome to the game!"
-    }
-
-    case class PleaseGuess(name: String) extends ConsoleOut {
-      def en = s"Dear $name, please guess a number from 1 to 5:"
-    }
-
-    case object GuessNotValid extends ConsoleOut {
-      def en = "You did not enter a number !"
-    }
-
-    case class YouGuessedRight(name: String) extends ConsoleOut {
-      def en = s"You guessed right, $name!"
-    }
-
-    case class YouGuessedWrong(name: String, num: Int) extends ConsoleOut {
-      def en = s"You guessed wrong, $name! The number was: $num"
-    }
-
-    case class DoYouWantToContinue(name: String) extends ConsoleOut {
-      def en = s"Do you want to continue, $name?"
-    }
-
-  }
-
 }
