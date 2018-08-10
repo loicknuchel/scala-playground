@@ -5,15 +5,9 @@ import scala.language.higherKinds
 import scala.util.Try
 
 /**
-  * Step0: Imperative code that do side effects and throw errors
-  * Step1: Make the program safe and not throw errors
-  * Step2: Remove loops to prepare IO refactoring (no more variables also \o/)
-  * Step3: Use IO to have a pure program
-  * Step4: Create a Program runner so we can abstract the IO monad and explicitly add dependencies
-  * Step5: Add some syntax for implicits
-  * Step6: Add a TestIO Monad to mock system and easily test the program
+  * Add some syntax for implicits
   */
-object Main {
+object Step5 {
 
   trait Program[F[_]] {
     def finish[A](a: => A): F[A]
@@ -78,54 +72,6 @@ object Main {
     }
   }
 
-  case class TestData(input: List[String], output: List[String], nums: List[Int]) {
-    def putStrLn(line: => String): (TestData, Unit) =
-      (copy(output = line :: output), ())
-
-    def getStrLn: (TestData, String) =
-      (copy(input = input.tail), input.head)
-
-    def nextInt(upper: Int): (TestData, Int) =
-      (copy(nums = nums.tail), nums.head)
-
-    def showResults: String = output.reverse.mkString("\n")
-  }
-
-  case class TestIO[A](run: TestData => (TestData, A)) {
-    def map[B](f: A => B): TestIO[B] =
-      TestIO(td => run(td) match {
-        case (d, a) => (d, f(a))
-      })
-
-    def flatMap[B](f: A => TestIO[B]): TestIO[B] =
-      TestIO(td => run(td) match {
-        case (d, a) => f(a).run(d)
-      })
-
-    def eval(d: TestData): TestData = run(d)._1
-  }
-
-  object TestIO {
-    def point[A](a: => A): TestIO[A] = TestIO(d => (d, a))
-
-    implicit val ProgramTestIO: Program[TestIO] = new Program[TestIO] {
-      override def finish[A](a: => A): TestIO[A] = TestIO.point(a)
-
-      override def chain[A, B](m: TestIO[A], f: A => TestIO[B]): TestIO[B] = m.flatMap(f)
-
-      override def map[A, B](m: TestIO[A], f: A => B): TestIO[B] = m.map(f)
-    }
-
-    implicit val ConsoleTestIO: Console[TestIO] = new Console[TestIO] {
-      def putStrLn(line: => String): TestIO[Unit] = TestIO(d => d.putStrLn(line))
-
-      def getStrLn: TestIO[String] = TestIO(d => d.getStrLn)
-    }
-    implicit val RandomTestIO: Random[TestIO] = new Random[TestIO] {
-      def nextInt(upper: Int): TestIO[Int] = TestIO(d => d.nextInt(upper))
-    }
-  }
-
   def finish[F[_] : Program, A](a: => A): F[A] = Program[F].finish(a)
 
   def putStrLn[F[_] : Console](line: => String): F[Unit] = Console[F].putStrLn(line)
@@ -136,19 +82,9 @@ object Main {
 
   def parseInt(in: String): Option[Int] = Try(in.toInt).toOption
 
-  def main(args: Array[String]): Unit = {
-    mainIO.unsafeRun()
-    /*val res = mainTestIO.eval(TestData(
-      input = List("loic", "2", "n"),
-      output = List(),
-      nums = List(1)
-    ))
-    println("Result :\n" + res.showResults)*/
-  }
+  def main(args: Array[String]): Unit = mainIO.unsafeRun()
 
   def mainIO: IO[Unit] = mainProgram[IO]
-
-  def mainTestIO: TestIO[Unit] = mainProgram[TestIO]
 
   def mainProgram[F[_] : Program : Console : Random]: F[Unit] =
     for {
