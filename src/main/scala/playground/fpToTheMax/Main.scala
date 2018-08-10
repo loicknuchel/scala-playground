@@ -100,7 +100,7 @@ object Main {
     }
 
     case object GuessNotValid extends ConsoleOut {
-      def en = "You did not enter a number !"
+      def en = "You did not enter a number"
     }
 
     case class YouGuessedRight(name: String) extends ConsoleOut {
