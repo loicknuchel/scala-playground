@@ -14,6 +14,7 @@ import scala.util.Try
   * Step6: Add a TestIO Monad to mock system and easily test the program
   * Step7: Output structured data instead of Strings
   * Step8: Split code between Main, Test & Lib
+  * Step9: Add an Option runner
   */
 object Main {
 
@@ -21,13 +22,33 @@ object Main {
 
   def parseInt(in: String): Option[Int] = Try(in.toInt).toOption
 
-  def main(args: Array[String]): Unit = mainIO.unsafeRun()
+  //def main(args: Array[String]): Unit = mainIO.unsafeRun()
+  def main(args: Array[String]): Unit = mainOption.get
 
   def mainIO: IO[Unit] = {
     implicit val p: Program[IO] = IO.ProgramIO
     implicit val c: Console[IO] = IO.ConsoleIO
     implicit val r: Random[IO] = IO.RandomIO
     mainProgram[IO]
+  }
+
+  def mainOption: Option[Unit] = {
+    implicit val ProgramOption: Program[Option] = new Program[Option] {
+      override def finish[A](a: => A): Option[A] = Option(a)
+
+      override def chain[A, B](m: Option[A], f: A => Option[B]): Option[B] = m.flatMap(f)
+
+      override def map[A, B](m: Option[A], f: A => B): Option[B] = m.map(f)
+    }
+    implicit val ConsoleOption: Console[Option] = new Console[Option] {
+      def putStrLn(line: => ConsoleOut): Option[Unit] = Option(println(line.en))
+
+      def getStrLn: Option[String] = Option(readLine())
+    }
+    implicit val RandomOption: Random[Option] = new Random[Option] {
+      def nextInt(upper: Int): Option[Int] = Option(scala.util.Random.nextInt(upper))
+    }
+    mainProgram[Option]
   }
 
   def mainProgram[F[_] : Program : Console : Random]: F[Unit] =
@@ -95,6 +116,7 @@ object Main {
     }
 
   }
+
 }
 
 object Test {
